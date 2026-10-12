@@ -99,9 +99,9 @@ The **v3 architecture** transitions to an **Array of Bytes (AOB) Pattern Signatu
 4. If **any required site** fails to match, the engine aborts with zero disk modifications.
 5. Signatures are derived from **cross-version common invariant regions**, filtering out compiler-generated relocation pointers.
 
-> Current signatures are validated across **IDM 6.43 build 10**, **6.43 build 11 (6.43.11.2)**, and **6.43 build 11 (6.43.11.3)**.  
-> The **14 primary sites** match uniquely across all three versions.  
-> The **15th site** is an optional version-adaptive patch specifically targeting build 11.3 anti-piracy behavior (see §0.2).
+> Current signatures are validated across **five releases**: **6.43 build 10**, **build 11 (6.43.11.2)**, **build 11 (6.43.11.3)**, **build 12 (6.43.12.3)**, and **build 15 (6.43.15.3)**.  
+> The **14 required sites** match uniquely across all five versions.  
+> The **15th site** is an optional version-adaptive patch targeting the build 11.3+ anti-piracy behavior (see §0.2); it does not exist in build 10 / 11.2 and is skipped automatically.
 
 ### 0.1 Version-Aware Backup Mechanism (Preventing Stale Rollback Points)
 
@@ -140,6 +140,21 @@ Preflight gating requires that all required sites are satisfied: `requiredOk == 
 | **build 10** | 14 / 15 (Optional skipped) | Identical to v1.3.0 (`712BD0D9…`) — Zero Regression |
 | **build 11 (11.2)** | 14 / 15 (Optional skipped) | Identical to v1.3.0 (`3470B5B8…`) — Zero Regression |
 | **build 11 (11.3)** | **15 / 15** | Applies 15th site patch (`641A6D97…`), neutralizing registration dialogs |
+| **build 12 (12.3)** | **15 / 15** | Applies 15th site patch (`B9B6F951…`) |
+| **build 15 (15.3)** | **15 / 15** | Applies 15th site patch (`5005D219…`) — see §0.3 |
+
+### 0.3 Build 15 (6.43.15.3) — Silent Auto-Update Invalidation
+
+**Observed failure mode**: IDM's built-in updater silently replaced the already-activated `IDMan.exe` with a freshly downloaded stock build 15 binary, resetting the entitlement state back to `v6.43b15 Trial` (CWE-602 — the privilege decision is enforced entirely client-side).
+
+The v1.4.0 engine correctly **refused to write** (9 of 15 signatures missed, zero bytes flushed), leaving the user with an unactivated but uncorrupted binary. Extending coverage to build 15 required two non-trivial adaptations:
+
+1. **Shrinking common-invariant region** — build 15 re-compiled a substantial portion of `.text`, so the byte region shared verbatim by all five releases contracted. Signatures were regenerated from the five-version intersection, which naturally narrowed them (e.g. `授权分支检测` 118 B → 24 B) while every site retained **dual-state uniqueness (1/1)**.
+2. **Non-uniform padding drift in `.data`** — the trial-flag/day-limit constant block gained two extra zero-padding bytes ahead of the `01 00 00 00 / 1E 00 00 00` pair. Naive sliding-Hamming matching therefore locked onto a near-miss location two bytes early (Hamming distance 2, wrong patch offset `0x379546`). The site was re-anchored by exact byte search to **`0x379524`** and confirmed by capstone disassembly.
+
+**Verification discipline applied**: every located site was cross-checked by (a) exact expected-byte match, (b) capstone semantic disassembly compared side-by-side against the build 11.3 baseline, and (c) an end-to-end patch whose diff offsets were asserted to fall **only** within patch sites ∪ PE checksum ∪ security directory.
+
+**Remediation guidance for users**: disable automatic updates (`CheckUpdtVM = 0`, written by Mode 1) so a future silent update does not invalidate the entitlement state again.
 
 ---
 
@@ -163,7 +178,7 @@ IDM performs asymmetric cryptographic signature checks on the `Serial` registry 
 Patching code sections invalidates the official Authenticode digital signature, causing security subsystems to flag the executable as tampered.  
 This toolkit parses the PE image dynamically:
 - Clears `VirtualAddress` and `Size` in `IMAGE_DIRECTORY_ENTRY_SECURITY` (Data Directory index 4).
-- Truncates the physical 10,608-byte digital certificate block appended to the file overlay (e.g., resizing build 11.3 from 6,200,176 to exactly 6,189,568 bytes, matching `pe.ImageEnd`).
+- Truncates the physical 10,608-byte digital certificate block appended to the file overlay (e.g., resizing build 11.3 from 6,200,176 to exactly 6,189,568 bytes, or build 15.3 from 6,201,712 to exactly 6,191,104 bytes — both matching `pe.ImageEnd`).
 - Recomputes the PE Checksum using the standard Microsoft folding addition algorithm, restoring binary structural compliance.
 
 ---
@@ -248,21 +263,23 @@ IDM_Pro_Tool/
 
 This toolkit is rigorously tested against official retail distribution binaries:
 
-| Verification Item | IDM 6.43 build 10 | IDM 6.43 build 11 (6.43.11.2) | IDM 6.43 build 11 (6.43.11.3) |
-| :--- | :--- | :--- | :--- |
-| **Product Version** | `IDMan.exe` v6.43.10.2 | v6.43.11.2 | v6.43.11.3 |
-| **Stock File Size** | 6,199,664 bytes | 6,200,176 bytes | 6,200,176 bytes |
-| **Stock SHA-256** | `03CC62E9…D16D607C` | `E8B0459D…9AB9DD4E69` | `D0993EC0…7CDB194C6A` |
-| **Stock PE Checksum** | `0x005ECD00` | `0x005EF1D7` | `0x005E9C44` |
-| **Patched File Size** | 6,189,056 bytes | 6,189,568 bytes | 6,189,568 bytes |
-| **Patched SHA-256 (v1.3.0)** | `712BD0D9…36FCC79CC6` | `3470B5B8…DEA6CD601D8` | `F4CF6939…20F920A5F4` |
-| **Patched Checksum (v1.3.0)** | `0x005EBDA3` | `0x005E84FA` | `0x005F4B5D` |
-| **Patched SHA-256 (v1.4.0)** | `712BD0D9…36FCC79CC6` | `3470B5B8…DEA6CD601D8` | `641A6D97…B6CC404763E` |
-| **Patched Checksum (v1.4.0)** | `0x005EBDA3` | `0x005E84FA` | `0x005EC25E` |
+| Verification Item | build 10 | build 11 (6.43.11.2) | build 11 (6.43.11.3) | build 12 (6.43.12.3) | build 15 (6.43.15.3) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Product Version** | `IDMan.exe` v6.43.10.2 | v6.43.11.2 | v6.43.11.3 | v6.43.12.3 | v6.43.15.3 |
+| **Stock File Size** | 6,199,664 bytes | 6,200,176 bytes | 6,200,176 bytes | 6,200,176 bytes | 6,201,712 bytes |
+| **Stock SHA-256** | `03CC62E9…D16D607C` | `E8B0459D…9AB9DD4E69` | `D0993EC0…7CDB194C6A` | `7B8D9ABA…099F214E` | `279CEED9…8A7CE737` |
+| **Stock PE Checksum** | `0x005ECD00` | `0x005EF1D7` | `0x005E9C44` | `0x005EF806` | `0x005F549C` |
+| **Patched File Size** | 6,189,056 bytes | 6,189,568 bytes | 6,189,568 bytes | 6,189,568 bytes | 6,191,104 bytes |
+| **Patched SHA-256 (v1.3.0)** | `712BD0D9…36FCC79CC6` | `3470B5B8…DEA6CD601D8` | `F4CF6939…20F920A5F4` | — | — |
+| **Patched Checksum (v1.3.0)** | `0x005EBDA3` | `0x005E84FA` | `0x005F4B5D` | — | — |
+| **Patched SHA-256 (v1.4.0)** | `712BD0D9…36FCC79CC6` | `3470B5B8…DEA6CD601D8` | `641A6D97…B6CC404763E` | — | — |
+| **Patched Checksum (v1.4.0)** | `0x005EBDA3` | `0x005E84FA` | `0x005EC25E` | — | — |
+| **Patched SHA-256 (v1.5.0)** | `712BD0D9…36FCC79CC6` | `3470B5B8…DEA6CD601D8` | `641A6D97…B6CC404763E` | `B9B6F951…07739B3E` | `5005D219…3F43466C` |
+| **Patched Checksum (v1.5.0)** | `0x005EBDA3` | `0x005E84FA` | `0x005EC25E` | `0x005F6E1F` | `0x005EC77B` |
 
 > *Note on Historical Hashes*: Legacy crack releases (e.g. v20.7) populated the PE checksum field with `0x005F0BEA`. Exhaustive algorithmic analysis proves this value corresponds to no valid Microsoft checksum standard. This toolkit writes the **mathematically valid standard checksum**.
 
-> *Signature Invariance*: AOB patterns are anchored in multi-version invariant byte sequences, naturally immune to relocation noise. The 14 core sites match uniquely across all tested releases; Site #15 automatically activates on build 11.3+ via the `Optional` subsystem.
+> *Signature Invariance*: AOB patterns are anchored in multi-version invariant byte sequences, naturally immune to relocation noise. The 14 required sites match uniquely across all five tested releases; Site #15 automatically activates on build 11.3+ via the `Optional` subsystem.
 
 ---
 

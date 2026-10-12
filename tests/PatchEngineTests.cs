@@ -207,11 +207,13 @@ namespace IDM_Toolkit_Wpf
 
         public static void Main(string[] args)
         {
-            string b10 = args.Length > 0 ? args[0] : Path.Combine("..", "samples", "IDMan_643b10_original.exe");
+            string b10  = args.Length > 0 ? args[0] : Path.Combine("..", "samples", "IDMan_643b10_original.exe");
             string b112 = args.Length > 1 ? args[1] : Path.Combine("..", "samples", "IDMan_643b11_original.exe");
             string b113 = args.Length > 2 ? args[2] : Path.Combine("..", "samples", "IDMan_643b11b3_original.exe");
+            string b123 = args.Length > 3 ? args[3] : Path.Combine("..", "samples", "IDMan_643b12_original.exe");
+            string b153 = args.Length > 4 ? args[4] : Path.Combine("..", "samples", "IDMan_643b15_original.exe");
 
-            foreach (var p in new[] { b10, b112, b113 })
+            foreach (var p in new[] { b10, b112, b113, b123, b153 })
                 if (!File.Exists(p)) { Console.WriteLine("找不到样本: " + p); Environment.ExitCode = 2; return; }
 
             string baseDir = Path.Combine(Path.GetTempPath(), "idm_aob_test_" + Guid.NewGuid().ToString("N").Substring(0, 8));
@@ -220,11 +222,14 @@ namespace IDM_Toolkit_Wpf
             Console.WriteLine("b10   : " + b10);
             Console.WriteLine("b11.2 : " + b112);
             Console.WriteLine("b11.3 : " + b113);
+            Console.WriteLine("b12.3 : " + b123);
+            Console.WriteLine("b15.3 : " + b153);
             Console.WriteLine();
 
             // 用例 0：校验和算法自校验
             Console.WriteLine("=== 用例0: PE 校验和算法自校验（对齐官方原版）===");
-            foreach (var pair in new[] { new[] { "b10", b10 }, new[] { "b11.2", b112 }, new[] { "b11.3", b113 } })
+            foreach (var pair in new[] { new[] { "b10", b10 }, new[] { "b11.2", b112 }, new[] { "b11.3", b113 },
+                                          new[] { "b12.3", b123 }, new[] { "b15.3", b153 } })
             {
                 byte[] d = File.ReadAllBytes(pair[1]);
                 MainWindow.PeInfo pi; string er;
@@ -236,10 +241,12 @@ namespace IDM_Toolkit_Wpf
             }
             Console.WriteLine();
 
-            // 三版本端到端
+            // 五版本端到端
             RunVersion("IDM 6.43 build 10", b10, baseDir);
             RunVersion("IDM 6.43 build 11 (6.43.11.2)", b112, baseDir);
             RunVersion("IDM 6.43 build 11 (6.43.11.3)", b113, baseDir);
+            RunVersion("IDM 6.43 build 12 (6.43.12.3)", b123, baseDir);
+            RunVersion("IDM 6.43 build 15 (6.43.15.3)", b153, baseDir);
 
             // 备份/还原相关
             RunStaleBackupCase(b10, b113, baseDir);
