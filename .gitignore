@@ -3,6 +3,7 @@
 *.BAK
 *.tmp
 *.log
+lang.cfg
 IDM_Reg_Backup.reg
 
 # 编译生成临时调试文件
