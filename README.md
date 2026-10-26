@@ -101,8 +101,8 @@ The **v3 architecture** transitions to an **Array of Bytes (AOB) Pattern Signatu
 4. If **any required site** fails to match, the engine aborts with zero disk modifications.
 5. Signatures are derived from **cross-version common invariant regions**, filtering out compiler-generated relocation pointers.
 
-> Current signatures are validated across **five releases**: **6.43 build 10**, **build 11 (6.43.11.2)**, **build 11 (6.43.11.3)**, **build 12 (6.43.12.3)**, and **build 15 (6.43.15.3)**.  
-> The **15 required sites** match uniquely across all five versions (including Site #16 which cuts off the background auto-update timer).  
+> Current signatures are validated across **six releases**: **6.43 build 10**, **build 11 (6.43.11.2)**, **build 11 (6.43.11.3)**, **build 12 (6.43.12.3)**, **build 15 (6.43.15.3)**, and **build 16 (6.43.16.3)**.  
+> The **15 required sites** match uniquely across all six versions (including Site #16 which cuts off the background auto-update timer).  
 > The **16th entry (Site #15)** is an optional version-adaptive patch targeting the build 11.3+ registration dialog behavior (see §0.2); it does not exist in build 10 / 11.2 and is skipped automatically.
 
 ### 0.1 Version-Aware Backup Mechanism (Preventing Stale Rollback Points)
@@ -144,6 +144,7 @@ Preflight gating requires that all required sites are satisfied: `requiredOk == 
 | **build 11 (11.3)** | **16 / 16** | `02627D24…` — All Active |
 | **build 12 (12.3)** | **16 / 16** | `51088CC0…` — All Active |
 | **build 15 (15.3)** | **16 / 16** | `5891512A…` — All Active |
+| **build 16 (16.3)** | **16 / 16** | `8F77A3E8…` — All Active |
 
 ### 0.3 Build 15 (6.43.15.3) — Silent Auto-Update Invalidation
 
@@ -171,6 +172,23 @@ The v1.4.0 engine correctly **refused to write** (9 of 15 signatures missed, zer
 
 ---
 
+### 0.5 Build 16 (6.43.16.3) — Code Relayout & the +245 KB `.text` Expansion
+
+**Observed failure mode**: After an official silent update to build 16, the registration dialog (resource ID 138) reappeared despite a previously successful activation.
+
+**Root cause**: Build 16 is not a minor revision. Compared with build 15.3, `.text` grew by **250,864 bytes (+245 KB)** and `.reloc` by 10,736 bytes, while `.rsrc` stayed byte-identical in size. Section virtual addresses shifted by `+0x3D000` (`.rdata`) through `+0x44000` (`.rsrc`/`.reloc`). Against the v1.6.0 five-release signature table, only **5 of 16 sites** still matched — the fail-closed engine therefore **wrote zero bytes**, leaving the binary stock and the entitlement at `v6.43b16 Trial`. The dialog was a symptom, not a new anti-tamper mechanism.
+
+**Extension work performed**:
+
+1. **Locating the ten missing sites** — a generalised sliding-Hamming locator was run with build 15.3 offsets as the reference. All ten resolved at Hamming distances of **3–10** over a 64-byte window (random expectation ≈ 62), i.e. pure code displacement rather than semantic rewrite. In-section shift was non-uniform: `+0x1D0` to `+0x5E0`.
+2. **Semantic verification** — every located site was re-disassembled with capstone in both build 15.3 and build 16.3. All 15 code sites land on an instruction boundary with an identical mnemonic (`test eax,eax`, `and eax,0xf`, `push -1`, `push ebp`, `je`, `jne`, `jne rel32`), and the `.data` constant block is byte-identical. Site #12 is an **operand patch** (`mov eax,1` → `mov eax,0`), not an opcode patch — the only site where the patch offset lands inside an instruction.
+3. **Signature regeneration across six releases** — adding build 16 narrowed the common invariant region further. A `0x69` byte immediately left of Site #1 became `0x6D` in build 16, so the left extension contracted from 2 bytes to 1. Signature length is capped at **48 bytes** per site: long enough to make accidental collisions implausible, short enough to tolerate future code drift. Total table size: **366 bytes across 16 sites (avg 22.9 B/site)**.
+4. **Zero regression on legacy releases** — patched output hashes for builds 10, 11.2, 11.3, 12.3 and 15.3 are **byte-identical** to v1.5.1. Two independent implementations (the C# engine and a standalone Python reference patcher) produce the same SHA-256 for build 16.3, cross-validating the patch semantics.
+
+**Verification discipline applied**: the differential byte audit confirms **32 changed bytes** in the overlapping region — all inside patch sites ∪ PE checksum ∪ security directory — plus a 10,608-byte Authenticode tail truncation. Nothing outside the whitelist changed.
+
+---
+
 ### 1. Dual-Layer Defense: Registry Strategy & Binary Branch Override
 
 IDM performs asymmetric cryptographic signature checks on the `Serial` registry value. Supplying an arbitrary or synthetic serial triggers counterfeit detection alarms.
@@ -191,7 +209,7 @@ IDM performs asymmetric cryptographic signature checks on the `Serial` registry 
 Patching code sections invalidates the official Authenticode digital signature, causing security subsystems to flag the executable as tampered.  
 This toolkit parses the PE image dynamically:
 - Clears `VirtualAddress` and `Size` in `IMAGE_DIRECTORY_ENTRY_SECURITY` (Data Directory index 4).
-- Truncates the physical 10,608-byte digital certificate block appended to the file overlay (e.g., resizing build 11.3 from 6,200,176 to exactly 6,189,568 bytes, or build 15.3 from 6,201,712 to exactly 6,191,104 bytes — both matching `pe.ImageEnd`).
+- Truncates the physical 10,608-byte digital certificate block appended to the file overlay (e.g., resizing build 11.3 from 6,200,176 to exactly 6,189,568 bytes, or build 15.3 from 6,201,712 to exactly 6,191,104 bytes, or build 16.3 from 6,490,480 to exactly 6,479,872 bytes — all matching `pe.ImageEnd`).
 - Recomputes the PE Checksum using the standard Microsoft folding addition algorithm, restoring binary structural compliance.
 
 ---
@@ -276,25 +294,27 @@ IDM_Pro_Tool/
 
 This toolkit is rigorously tested against official retail distribution binaries:
 
-| Verification Item | build 10 | build 11 (6.43.11.2) | build 11 (6.43.11.3) | build 12 (6.43.12.3) | build 15 (6.43.15.3) |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Product Version** | `IDMan.exe` v6.43.10.2 | v6.43.11.2 | v6.43.11.3 | v6.43.12.3 | v6.43.15.3 |
-| **Stock File Size** | 6,199,664 bytes | 6,200,176 bytes | 6,200,176 bytes | 6,200,176 bytes | 6,201,712 bytes |
-| **Stock SHA-256** | `03CC62E9…D16D607C` | `E8B0459D…9AB9DD4E69` | `D0993EC0…7CDB194C6A` | `7B8D9ABA…099F214E` | `279CEED9…8A7CE737` |
-| **Stock PE Checksum** | `0x005ECD00` | `0x005EF1D7` | `0x005E9C44` | `0x005EF806` | `0x005F549C` |
-| **Patched File Size** | 6,189,056 bytes | 6,189,568 bytes | 6,189,568 bytes | 6,189,568 bytes | 6,191,104 bytes |
-| **Patched SHA-256 (v1.3.0)** | `712BD0D9…36FCC79CC6` | `3470B5B8…DEA6CD601D8` | `F4CF6939…20F920A5F4` | — | — |
-| **Patched Checksum (v1.3.0)** | `0x005EBDA3` | `0x005E84FA` | `0x005F4B5D` | — | — |
-| **Patched SHA-256 (v1.4.0)** | `712BD0D9…36FCC79CC6` | `3470B5B8…DEA6CD601D8` | `641A6D97…B6CC404763E` | — | — |
-| **Patched Checksum (v1.4.0)** | `0x005EBDA3` | `0x005E84FA` | `0x005EC25E` | — | — |
-| **Patched SHA-256 (v1.5.0)** | `712BD0D9…36FCC79CC6` | `3470B5B8…DEA6CD601D8` | `641A6D97…B6CC404763E` | `B9B6F951…07739B3E` | `5005D219…3F43466C` |
-| **Patched Checksum (v1.5.0)** | `0x005EBDA3` | `0x005E84FA` | `0x005EC25E` | `0x005F6E1F` | `0x005EC77B` |
-| **Patched SHA-256 (v1.5.1)** | `69F95587…61220F9A` | `0A22C48B…257D5AC8` | `02627D24…3AE2B0B5` | `51088CC0…ADBBB71A` | `5891512A…7780CF5D` |
-| **Patched Checksum (v1.5.1)** | `0x005F33A3` | `0x005EFAFA` | `0x005F385E` | `0x005EE420` | `0x005F3D7B` |
+| Verification Item | build 10 | build 11 (6.43.11.2) | build 11 (6.43.11.3) | build 12 (6.43.12.3) | build 15 (6.43.15.3) | build 16 (6.43.16.3) |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Product Version** | `IDMan.exe` v6.43.10.2 | v6.43.11.2 | v6.43.11.3 | v6.43.12.3 | v6.43.15.3 | v6.43.16.3 |
+| **Stock File Size** | 6,199,664 bytes | 6,200,176 bytes | 6,200,176 bytes | 6,200,176 bytes | 6,201,712 bytes | 6,490,480 bytes |
+| **Stock SHA-256** | `03CC62E9…D16D607C` | `E8B0459D…9AB9DD4E69` | `D0993EC0…7CDB194C6A` | `7B8D9ABA…099F214E` | `279CEED9…8A7CE737` | `75AC33A7…C2145285` |
+| **Stock PE Checksum** | `0x005ECD00` | `0x005EF1D7` | `0x005E9C44` | `0x005EF806` | `0x005F549C` | `0x00630D90` |
+| **Patched File Size** | 6,189,056 bytes | 6,189,568 bytes | 6,189,568 bytes | 6,189,568 bytes | 6,191,104 bytes | 6,479,872 bytes |
+| **Patched SHA-256 (v1.3.0)** | `712BD0D9…36FCC79CC6` | `3470B5B8…DEA6CD601D8` | `F4CF6939…20F920A5F4` | — | — | — |
+| **Patched Checksum (v1.3.0)** | `0x005EBDA3` | `0x005E84FA` | `0x005F4B5D` | — | — | — |
+| **Patched SHA-256 (v1.4.0)** | `712BD0D9…36FCC79CC6` | `3470B5B8…DEA6CD601D8` | `641A6D97…B6CC404763E` | — | — | — |
+| **Patched Checksum (v1.4.0)** | `0x005EBDA3` | `0x005E84FA` | `0x005EC25E` | — | — | — |
+| **Patched SHA-256 (v1.5.0)** | `712BD0D9…36FCC79CC6` | `3470B5B8…DEA6CD601D8` | `641A6D97…B6CC404763E` | `B9B6F951…07739B3E` | `5005D219…3F43466C` | — |
+| **Patched Checksum (v1.5.0)** | `0x005EBDA3` | `0x005E84FA` | `0x005EC25E` | `0x005F6E1F` | `0x005EC77B` | — |
+| **Patched SHA-256 (v1.5.1)** | `69F95587…61220F9A` | `0A22C48B…257D5AC8` | `02627D24…3AE2B0B5` | `51088CC0…ADBBB71A` | `5891512A…7780CF5D` | — |
+| **Patched Checksum (v1.5.1)** | `0x005F33A3` | `0x005EFAFA` | `0x005F385E` | `0x005EE420` | `0x005F3D7B` | — |
+| **Patched SHA-256 (v1.6.1)** | `69F95587…61220F9A` | `0A22C48B…257D5AC8` | `02627D24…3AE2B0B5` | `51088CC0…ADBBB71A` | `5891512A…7780CF5D` | `8F77A3E8…A029B5EE` |
+| **Patched Checksum (v1.6.1)** | `0x005F33A3` | `0x005EFAFA` | `0x005F385E` | `0x005EE420` | `0x005F3D7B` | `0x0063A19B` |
 
 > *Note on Historical Hashes*: Legacy crack releases (e.g. v20.7) populated the PE checksum field with `0x005F0BEA`. Exhaustive algorithmic analysis proves this value corresponds to no valid Microsoft checksum standard. This toolkit writes the **mathematically valid standard checksum**.
 
-> *Signature Invariance*: AOB patterns are anchored in multi-version invariant byte sequences, naturally immune to relocation noise. The 15 required sites match uniquely across all five tested releases (including Site #16); Site #15 automatically activates on build 11.3+ via the `Optional` subsystem.
+> *Signature Invariance*: AOB patterns are anchored in multi-version invariant byte sequences, naturally immune to relocation noise. The 15 required sites match uniquely across all six tested releases (including Site #16); Site #15 automatically activates on build 11.3+ via the `Optional` subsystem.
 
 ---
 

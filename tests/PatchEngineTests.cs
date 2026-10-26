@@ -79,7 +79,7 @@ namespace IDM_Toolkit_Wpf
             return unexpected.Count == 0;
         }
 
-        static void RunVersion(string label, string srcPath, string baseDir)
+        static void RunVersion(string label, string srcPath, string baseDir, string expectSha = null)
         {
             Console.WriteLine("=======================================================");
             Console.WriteLine("=== " + label);
@@ -143,6 +143,9 @@ namespace IDM_Toolkit_Wpf
             Check("重复执行文件零变化", Sha(t).Equals(before, StringComparison.OrdinalIgnoreCase));
 
             Console.WriteLine("    产物 SHA256: " + before);
+            if (expectSha != null)
+                Check("产物哈希与基线一致（回归锁定）",
+                      before.Equals(expectSha, StringComparison.OrdinalIgnoreCase));
             Console.WriteLine();
         }
 
@@ -213,8 +216,9 @@ namespace IDM_Toolkit_Wpf
             string b113 = args.Length > 2 ? args[2] : Path.Combine("..", "samples", "IDMan_643b11b3_original.exe");
             string b123 = args.Length > 3 ? args[3] : Path.Combine("..", "samples", "IDMan_643b12_original.exe");
             string b153 = args.Length > 4 ? args[4] : Path.Combine("..", "samples", "IDMan_643b15_original.exe");
+            string b163 = args.Length > 5 ? args[5] : Path.Combine("..", "samples", "IDMan_643b16_original.exe");
 
-            foreach (var p in new[] { b10, b112, b113, b123, b153 })
+            foreach (var p in new[] { b10, b112, b113, b123, b153, b163 })
                 if (!File.Exists(p)) { Console.WriteLine("找不到样本: " + p); Environment.ExitCode = 2; return; }
 
             string baseDir = Path.Combine(Path.GetTempPath(), "idm_aob_test_" + Guid.NewGuid().ToString("N").Substring(0, 8));
@@ -225,12 +229,13 @@ namespace IDM_Toolkit_Wpf
             Console.WriteLine("b11.3 : " + b113);
             Console.WriteLine("b12.3 : " + b123);
             Console.WriteLine("b15.3 : " + b153);
+            Console.WriteLine("b16.3 : " + b163);
             Console.WriteLine();
 
             // 用例 0：校验和算法自校验
             Console.WriteLine("=== 用例0: PE 校验和算法自校验（对齐官方原版）===");
             foreach (var pair in new[] { new[] { "b10", b10 }, new[] { "b11.2", b112 }, new[] { "b11.3", b113 },
-                                          new[] { "b12.3", b123 }, new[] { "b15.3", b153 } })
+                                          new[] { "b12.3", b123 }, new[] { "b15.3", b153 }, new[] { "b16.3", b163 } })
             {
                 byte[] d = File.ReadAllBytes(pair[1]);
                 MainWindow.PeInfo pi; string er;
@@ -242,12 +247,19 @@ namespace IDM_Toolkit_Wpf
             }
             Console.WriteLine();
 
-            // 五版本端到端
-            RunVersion("IDM 6.43 build 10", b10, baseDir);
-            RunVersion("IDM 6.43 build 11 (6.43.11.2)", b112, baseDir);
-            RunVersion("IDM 6.43 build 11 (6.43.11.3)", b113, baseDir);
-            RunVersion("IDM 6.43 build 12 (6.43.12.3)", b123, baseDir);
-            RunVersion("IDM 6.43 build 15 (6.43.15.3)", b153, baseDir);
+            // 六版本端到端（哈希基线用于锁定回归）
+            RunVersion("IDM 6.43 build 10", b10, baseDir,
+                "69F955870C99F68A2A53BD570A87959E527069F2D83B873ACF592BD661220F9A");
+            RunVersion("IDM 6.43 build 11 (6.43.11.2)", b112, baseDir,
+                "0A22C48BB2561E1DFD09E621AF28685278F4272AB70BEE7330A2B4BE257D5AC8");
+            RunVersion("IDM 6.43 build 11 (6.43.11.3)", b113, baseDir,
+                "02627D244F588C1E293CF8C06CC3D2D268FDE08C6DE44F0220A340BF3AE2B0B5");
+            RunVersion("IDM 6.43 build 12 (6.43.12.3)", b123, baseDir,
+                "51088CC0E5AEB4C30BE94D92315FE96EFC7B334069EB0A809949892ADBBB71A4");
+            RunVersion("IDM 6.43 build 15 (6.43.15.3)", b153, baseDir,
+                "5891512A646714CE49C1C229FCAEFB8BB186058AF38C9DFB038E57AC7780CF5D");
+            RunVersion("IDM 6.43 build 16 (6.43.16.3)", b163, baseDir,
+                "8F77A3E8099F191C165E7733618B3DEAA702FFFC4D392696ECDDB555A029B5EE");
 
             // 备份/还原相关
             RunStaleBackupCase(b10, b113, baseDir);

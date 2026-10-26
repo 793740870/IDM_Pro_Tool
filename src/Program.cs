@@ -3478,32 +3478,34 @@ namespace IDM_Toolkit_Wpf
 
     public static class NativeBinaryPatcher
     {
-        // ===== 支持范围 =====
-        public const string SupportedVersions = "IDM 6.43 build 10 / build 11 (6.43.11.2) / build 11 (6.43.11.3) / build 12 (6.43.12.3) / build 15 (6.43.15.3)";
+                // ===== 支持范围 =====
+        public const string SupportedVersions = "IDM 6.43 build 10 / build 11 (6.43.11.2) / build 11 (6.43.11.3) / build 12 (6.43.12.3) / build 15 (6.43.15.3) / build 16 (6.43.16.3)";
 
         // ===== AOB 特征码表 =====
         // 经 IDM 6.43 build 10 / build 11 (6.43.11.2) / build 11 (6.43.11.3) /
-        //        build 12 (6.43.12.3) / build 15 (6.43.15.3) 五个版本交叉验证：
-        // 全部 15 个必需位点在五个版本的「原始态 / 已补丁态」中均为唯一命中；
-        // （含位点 16：启动自动更新定时器切断，从根本上杜绝后台更新探测与代理连接失败弹窗）；
-        // 另有 1 个可选位点仅在 build 11.3 / 12.3 / 15.3 存在（那三个版本唯一命中），
-        // 在 build 10 / 11.2 上零命中，由 Optional 机制自动跳过。
+        //        build 12 (6.43.12.3) / build 15 (6.43.15.3) / build 16 (6.43.16.3)
+        // 六个版本交叉验证：15 个必需位点 + 1 个可选位点在「原始态 / 已补丁态」下均唯一命中。
         //
-        // 特征码取自「五版本共同稳定区」——即只有在这五个版本中字节完全一致的
-        // 区域才被纳入特征码，从而天然排除编译器生成的重定位指针与版本相关常量。
+        // build 16 相对 build 15 的 .text 段增长 245 KB，代码整体位移 +0x1D0 ~ +0x5E0；
+        // 部分位点周边地址常量亦随之变化（如位点 1 左侧 0x69 -> 0x6D），因此特征码在
+        // 六版本共同稳定区内自动收窄。所有位点已用 capstone 验证指令语义与五版本完全一致。
+        //
+        // 特征码取自「六版本共同稳定区」——即只有在这六个版本中字节完全一致的区域
+        // 才被纳入特征码，从而天然排除编译器生成的重定位指针与版本相关常量。
+        // 单条签名长度上限 48 字节：足够长以防误命中，足够短以抵御未来版本代码漂移。
         public static readonly AobPoint[] POINTS = new AobPoint[]
         {
             new AobPoint(
                 "授权分支检测 (test eax->xor eax)",
-                "690085C00F851B010000C6854FF5FFFF018D8D50F5FFFFE8",
-                "690033C00F851B010000C6854FF5FFFF018D8D50F5FFFFE8",
-                2, "85", "33"),
+                "0085C00F851B010000C6854FF5FFFF018D8D50F5FFFFE8",
+                "0033C00F851B010000C6854FF5FFFF018D8D50F5FFFFE8",
+                1, "85", "33"),
 
             new AobPoint(
                 "试用期最大值 (->mov eax,7FFFFFFF+nop)",
-                "7700F7D81BC083E00F83C00FA3",
-                "7700F7D81BC0B8FFFFFF7F90A3",
-                6, "83E00F83C00F", "B8FFFFFF7F90"),
+                "00F7D81BC083E00F83C00FA3",
+                "00F7D81BC0B8FFFFFF7F90A3",
+                5, "83E00F83C00F", "B8FFFFFF7F90"),
 
             new AobPoint(
                 "假序列号弹窗 A (jz->jmp)",
@@ -3513,53 +3515,51 @@ namespace IDM_Toolkit_Wpf
 
             new AobPoint(
                 "守护线程 A",
-                "1A0085FF750885ED750433C0EB05B8010000008B8C24F400000064890D00000000595F5E5D5B81C4EC000000C3CCCCCC" +
-                "6AFF68",
-                "1A0085FF750885ED750433C0EB05B8010000008B8C24F400000064890D00000000595F5E5D5B81C4EC000000C3CCCCCC" +
-                "C3FF68",
-                48, "6A", "C3"),
+                "000064890D00000000595F5E5D5B81C4EC000000C3CCCCCC6AFF68",
+                "000064890D00000000595F5E5D5B81C4EC000000C3CCCCCCC3FF68",
+                24, "6A", "C3"),
 
             new AobPoint(
                 "守护线程 B",
-                "1C0081C470010000C3CCCCCCCC6AFF68",
-                "1C0081C470010000C3CCCCCCCCC3FF68",
-                13, "6A", "C3"),
+                "0081C470010000C3CCCCCCCC6AFF68",
+                "0081C470010000C3CCCCCCCCC3FF68",
+                12, "6A", "C3"),
 
             new AobPoint(
                 "守护线程 C",
-                "1C0085F675928B4C241864890D00000000595F5E5D5B83C410C20400CCCCCCCCCCCCCCCCCCCCCCCC6AFF68",
-                "1C0085F675928B4C241864890D00000000595F5E5D5B83C410C20400CCCCCCCCCCCCCCCCCCCCCCCCC3FF68",
-                40, "6A", "C3"),
+                "00595F5E5D5B83C410C20400CCCCCCCCCCCCCCCCCCCCCCCC6AFF68",
+                "00595F5E5D5B83C410C20400CCCCCCCCCCCCCCCCCCCCCCCCC3FF68",
+                24, "6A", "C3"),
 
             new AobPoint(
                 "守护线程 D",
-                "6900B801000000C3CCCCCCCCCCCCCCCCCCCCCCCCCC6AFF68",
-                "6900B801000000C3CCCCCCCCCCCCCCCCCCCCCCCCCCC3FF68",
-                21, "6A", "C3"),
+                "00B801000000C3CCCCCCCCCCCCCCCCCCCCCCCCCC6AFF68",
+                "00B801000000C3CCCCCCCCCCCCCCCCCCCCCCCCCCC3FF68",
+                20, "6A", "C3"),
 
             new AobPoint(
                 "看门狗关联函数",
-                "1B0081C41C100000C3CCCC6AFF68",
-                "1B0081C41C100000C3CCCCC3FF68",
-                11, "6A", "C3"),
+                "0081C41C100000C3CCCC6AFF68",
+                "0081C41C100000C3CCCCC3FF68",
+                10, "6A", "C3"),
 
             new AobPoint(
                 "守护线程 E (push ebp->ret)",
-                "1B0081C4D0010000C3CCCCCCCCCCCCCCCCCC558BEC83E4F86AFF68",
-                "1B0081C4D0010000C3CCCCCCCCCCCCCCCCCCC38BEC83E4F86AFF68",
-                18, "55", "C3"),
+                "0081C4D0010000C3CCCCCCCCCCCCCCCCCC558BEC83E4F86AFF68",
+                "0081C4D0010000C3CCCCCCCCCCCCCCCCCCC38BEC83E4F86AFF68",
+                17, "55", "C3"),
 
             new AobPoint(
                 "守护线程 F",
-                "77008B4C240864890D00000000595E83C40CC3CCCCCCCCCCCCCC6AFF68",
-                "77008B4C240864890D00000000595E83C40CC3CCCCCCCCCCCCCCC3FF68",
-                26, "6A", "C3"),
+                "8B4C240864890D00000000595E83C40CC3CCCCCCCCCCCCCC6AFF68",
+                "8B4C240864890D00000000595E83C40CC3CCCCCCCCCCCCCCC3FF68",
+                24, "6A", "C3"),
 
             new AobPoint(
                 "过期强退逻辑 (0F85->90E9)",
-                "690085C00F85F10100008D85801B02008D50018D6424008A084084C975F92BC283F8020F85D2010000E8",
-                "690085C00F85F10100008D85801B02008D50018D6424008A084084C975F92BC283F80290E9D2010000E8",
-                35, "0F85", "90E9"),
+                "85801B02008D50018D6424008A084084C975F92BC283F8020F85D2010000E8",
+                "85801B02008D50018D6424008A084084C975F92BC283F80290E9D2010000E8",
+                24, "0F85", "90E9"),
 
             new AobPoint(
                 "联网验证标志位",
@@ -3579,25 +3579,20 @@ namespace IDM_Toolkit_Wpf
                 "0000000100000000000000FFFFFF7F",
                 7, "010000001E000000", "00000000FFFFFF7F"),
 
-            // ── 可选位点：仅 IDM 6.43 build 11.3+ 新增的“Serial 缺失 → 弹注册对话框”对抗逻辑 ──
-            // build 11.3 / 12.3 / 15.3 中：启动时若注册表不存在 Serial 值，则直接弹出注册对话框（资源 138）。
-            // 该分支在 b10 / 11.2 中仅作句柄清理，不会弹框，故本特征码在那两个版本上零命中，
-            // 由 Optional 机制自动跳过。原始 `je` 改为 `jmp`，使流程永远走“Serial 已存在”路径。
             new AobPoint(
                 "注册对话框抑制 (Serial缺失分支, 可选)",
-                "690085C0740C8BCBE8",
-                "690085C0EB0C8BCBE8",
-                4, "74", "EB", true),
+                "0085C0740C8BCBE8",
+                "0085C0EB0C8BCBE8",
+                3, "74", "EB", true),
 
-            // ── 位点 16：启动自动更新定时器切断（全版本通用必需位点） ──
-            // IDM 启动时通过 SetTimer(..., 0x22, 225000ms) 注册后台更新定时器，
-            // 触发后向官方服务器查询并下载 idmupdt.exe；网络不通或代理配置不当时即弹出连接失败报错。
-            // 将 `jne` (75 19) 改为 `jmp` (EB 19)，彻底跳过定时器安装，从根本上杜绝更新探测与弹窗。
             new AobPoint(
                 "启动自动更新定时器切断 (jne->jmp, 彻底杜绝后台更新)",
-                "389E8E02000075195368E86E03006A228B462050",
-                "389E8E020000EB195368E86E03006A228B462050",
-                6, "75", "EB"),
+                "1F8B562052FFD785C07407C6868B02000001389E8E02000075195368E86E03006A228B462050FFD785C07407C6868E" +
+                "02",
+                "1F8B562052FFD785C07407C6868B02000001389E8E020000EB195368E86E03006A228B462050FFD785C07407C6868E" +
+                "02",
+                24, "75", "EB"),
+
         };
 
         // 向后兼容：旧代码引用的 RulesCount
